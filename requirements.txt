@@ -1,5 +1,6 @@
-streamlit>=1.28.0
+
 openai-whisper>=20231117
+streamlit>=1.28.0
 audio-recorder-streamlit>=0.0.8
 torch>=2.0.0,<2.1.0
 torchaudio>=2.0.0,<2.1.0
