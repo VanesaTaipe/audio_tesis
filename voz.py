@@ -1,5 +1,8 @@
 import os
 import warnings
+import sys
+
+# Configuraciones para Streamlit Cloud
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -9,14 +12,6 @@ from audio_recorder_streamlit import audio_recorder
 import re
 from datetime import datetime
 
-# Intentar importar whisper, si falla usar alternativa
-try:
-    import whisper
-    WHISPER_AVAILABLE = True
-except ImportError:
-    WHISPER_AVAILABLE = False
-    st.error("Whisper no está disponible. Solo se puede usar entrada de texto.")
-
 # Configuración de la página
 st.set_page_config(
     page_title="Asistente Médico por Voz",
@@ -24,7 +19,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# Base de conocimientos médica (igual que antes)
+@st.cache_resource
+def load_whisper_model():
+    """Cargar modelo Whisper con cache para Streamlit Cloud"""
+    try:
+        import whisper
+        
+        # Usar modelo tiny para menor uso de memoria en la nube
+        model = whisper.load_model("tiny", device="cpu")
+        return model, None
+    except Exception as e:
+        return None, str(e)
+
+# Base de conocimientos médica
 MEDICAL_KNOWLEDGE = {
     "fiebre": {
         "keywords": ["fiebre", "temperatura", "hipertermia", "febril", "caliente"],
@@ -50,7 +57,7 @@ MEDICAL_KNOWLEDGE = {
     }
 }
 
-# Diagnósticos y recomendaciones NIC (igual que antes)
+# Diagnósticos y recomendaciones NIC
 DIAGNOSTICOS_NIC = {
     "neumonia": {
         "sintomas_clave": ["fiebre", "dolor_pulmon", "respiracion", "tos"],
@@ -93,39 +100,25 @@ DIAGNOSTICOS_NIC = {
     }
 }
 
-def transcribir_audio_simple(audio_bytes):
-    """Función simple para manejar audio sin FFmpeg"""
+def transcribe_audio_optimized(audio_bytes, model):
+    """Transcripción optimizada para Streamlit Cloud"""
     try:
-        if not WHISPER_AVAILABLE:
-            return None, "Whisper no disponible. Use entrada de texto."
-        
-        # Cargar modelo si no existe
-        if "whisper_model" not in st.session_state:
-            with st.spinner("Cargando modelo de reconocimiento (primera vez)..."):
-                try:
-                    # Usar modelo tiny para evitar problemas de memoria
-                    model = whisper.load_model("tiny", device="cpu")
-                    st.session_state.whisper_model = model
-                except Exception as e:
-                    return None, f"Error cargando modelo: {str(e)}"
-        
-        model = st.session_state.whisper_model
-        
         # Crear archivo temporal
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
             tmp_file.write(audio_bytes)
             tmp_path = tmp_file.name
         
         try:
-            # Transcribir con configuración simplificada
+            # Configuración optimizada para la nube
             result = model.transcribe(
                 tmp_path,
-                fp16=False,  # Forzar FP32
-                language="es"  # Forzar español
+                fp16=False,  # Usar FP32 para mejor compatibilidad
+                language="es",  # Forzar español
+                task="transcribe",
+                verbose=False
             )
             
-            texto = result["text"].strip()
-            return texto, None
+            return result["text"].strip(), None
             
         except Exception as e:
             return None, f"Error en transcripción: {str(e)}"
@@ -233,15 +226,19 @@ def generar_diagnostico_y_recomendaciones(info_medica):
 if "historial_pacientes" not in st.session_state:
     st.session_state.historial_pacientes = []
 
-# Titulo principal
+# Título principal
 st.title("Asistente Medico por Voz")
 st.markdown("**Describe a tu paciente hablando y recibe recomendaciones NIC inmediatas**")
 
-# Mostrar estado de FFmpeg/Whisper
-if not WHISPER_AVAILABLE:
-    st.warning("⚠️ Reconocimiento de voz no disponible. Solo se puede usar entrada de texto.")
+# Cargar modelo Whisper
+model, error_model = load_whisper_model()
+
+if error_model:
+    st.error(f"Error cargando modelo: {error_model}")
+    st.info("💡 Usa la entrada de texto mientras se soluciona el problema")
+    model = None
 else:
-    st.success("✅ Reconocimiento de voz disponible")
+    st.success("✅ Reconocimiento de voz listo")
 
 # Columnas principales
 col1, col2 = st.columns([1, 1])
@@ -249,8 +246,8 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("Describe al Paciente")
     
-    # Solo mostrar grabación si whisper está disponible
-    if WHISPER_AVAILABLE:
+    # Grabación de audio
+    if model:
         st.info("Presiona el boton y describe los sintomas de tu paciente")
         audio_bytes = audio_recorder(
             text="Presiona para describir al paciente",
@@ -264,9 +261,9 @@ with col1:
             st.audio(audio_bytes, format="audio/wav")
     else:
         audio_bytes = None
-        st.info("Reconocimiento de voz no disponible. Use entrada de texto.")
+        st.warning("Reconocimiento de voz no disponible")
     
-    # Opcion de texto directo (siempre disponible)
+    # Entrada de texto (siempre disponible)
     st.markdown("**Escribe directamente:**")
     texto_manual = st.text_area(
         "Describe los sintomas:",
@@ -277,18 +274,18 @@ with col1:
 with col2:
     st.subheader("Analisis y Recomendaciones")
     
-    # Boton de analisis
+    # Botón de análisis
     if st.button("Analizar Paciente", use_container_width=True, key="analizar_btn"):
         texto_analizar = None
         
-        # Procesar audio si existe y whisper está disponible
-        if audio_bytes and WHISPER_AVAILABLE:
+        # Procesar audio si existe
+        if audio_bytes and model:
             with st.spinner("Transcribiendo descripcion del paciente..."):
-                texto_transcrito, error = transcribir_audio_simple(audio_bytes)
+                texto_transcrito, error = transcribe_audio_optimized(audio_bytes, model)
                 
                 if error:
-                    st.error(f"Error en transcripción: {error}")
-                    st.info("💡 Tip: Puedes usar la entrada de texto como alternativa")
+                    st.error(f"Error: {error}")
+                    st.info("💡 Tip: Puedes usar la entrada de texto")
                 else:
                     texto_analizar = texto_transcrito
                     st.success(f"✅ Transcripción: {texto_analizar}")
@@ -297,16 +294,16 @@ with col2:
         if not texto_analizar and texto_manual:
             texto_analizar = texto_manual
         
-        # Analizar informacion medica
+        # Analizar información médica
         if texto_analizar:
             with st.spinner("Analizando informacion medica..."):
                 info_medica = extraer_informacion_medica(texto_analizar)
                 resultado = generar_diagnostico_y_recomendaciones(info_medica)
                 
-                # Mostrar analisis
+                # Mostrar análisis
                 st.success("✅ Analisis completado")
                 
-                # Informacion detectada
+                # Información detectada
                 col_info1, col_info2 = st.columns(2)
                 
                 with col_info1:
@@ -329,17 +326,17 @@ with col2:
                     else:
                         st.info(f"ℹ️ Urgencia: {resultado['urgencia']}")
                 
-                # Sintomas detectados
+                # Síntomas detectados
                 if resultado["sintomas_detectados"]:
                     st.write("**🩺 Sintomas identificados:**")
                     for sintoma in resultado["sintomas_detectados"]:
                         st.write(f"• {sintoma.replace('_', ' ').title()}")
                 
-                # Diagnostico probable
+                # Diagnóstico probable
                 if resultado["diagnostico"]:
                     st.write(f"**🎯 Diagnostico probable:** {resultado['diagnostico'].replace('_', ' ').title()}")
                 
-                # Codigos NIC
+                # Códigos NIC
                 if resultado["nic_codes"]:
                     st.write("**📋 Codigos NIC aplicables:**")
                     for code in resultado["nic_codes"]:
@@ -384,7 +381,7 @@ if st.session_state.historial_pacientes:
             
             if paciente.get("recomendaciones"):
                 st.write("**Recomendaciones aplicadas:**")
-                for rec in paciente["recomendaciones"][:3]:  # Mostrar solo las primeras 3
+                for rec in paciente["recomendaciones"][:3]:
                     st.write(f"• {rec}")
 
 # Footer
