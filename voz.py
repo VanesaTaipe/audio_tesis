@@ -1,35 +1,13 @@
-import os
-import warnings
-import sys
-
-# Configuraciones para Streamlit Cloud
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-warnings.filterwarnings("ignore", category=UserWarning)
-
 import streamlit as st
-import tempfile
-from audio_recorder_streamlit import audio_recorder
 import re
 from datetime import datetime
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Asistente Médico por Voz",
+    page_title="Asistente Médico por Texto",
     page_icon="🩺",
     layout="wide"
 )
-
-@st.cache_resource
-def load_whisper_model():
-    """Cargar modelo Whisper con cache para Streamlit Cloud"""
-    try:
-        import whisper
-        
-        # Usar modelo tiny para menor uso de memoria en la nube
-        model = whisper.load_model("tiny", device="cpu")
-        return model, None
-    except Exception as e:
-        return None, str(e)
 
 # Base de conocimientos médica
 MEDICAL_KNOWLEDGE = {
@@ -100,41 +78,8 @@ DIAGNOSTICOS_NIC = {
     }
 }
 
-def transcribe_audio_optimized(audio_bytes, model):
-    """Transcripción optimizada para Streamlit Cloud"""
-    try:
-        # Crear archivo temporal
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
-        
-        try:
-            # Configuración optimizada para la nube
-            result = model.transcribe(
-                tmp_path,
-                fp16=False,  # Usar FP32 para mejor compatibilidad
-                language="es",  # Forzar español
-                task="transcribe",
-                verbose=False
-            )
-            
-            return result["text"].strip(), None
-            
-        except Exception as e:
-            return None, f"Error en transcripción: {str(e)}"
-        
-        finally:
-            # Limpiar archivo temporal
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-                
-    except Exception as e:
-        return None, f"Error general: {str(e)}"
-
 def extraer_informacion_medica(texto):
-    """Extrae informacion medica del texto hablado"""
+    """Extrae informacion medica del texto"""
     texto = texto.lower()
     
     # Extraer temperatura
@@ -226,165 +171,211 @@ def generar_diagnostico_y_recomendaciones(info_medica):
 if "historial_pacientes" not in st.session_state:
     st.session_state.historial_pacientes = []
 
-# Título principal
-st.title("Asistente Medico por Voz")
-st.markdown("**Describe a tu paciente hablando y recibe recomendaciones NIC inmediatas**")
+# Titulo principal
+st.title("🩺 Asistente Médico por Texto")
+st.markdown("**Describe a tu paciente y recibe recomendaciones NIC inmediatas**")
 
-# Cargar modelo Whisper
-model, error_model = load_whisper_model()
+# Alerta sobre reconocimiento de voz
+st.info("ℹ️ Temporalmente solo disponible entrada de texto. Reconocimiento de voz estará disponible próximamente.")
 
-if error_model:
-    st.error(f"Error cargando modelo: {error_model}")
-    st.info("💡 Usa la entrada de texto mientras se soluciona el problema")
-    model = None
-else:
-    st.success("✅ Reconocimiento de voz listo")
+# Instrucciones
+with st.expander("📋 Cómo usar el asistente"):
+    st.markdown("""
+    **Ejemplos de lo que puedes escribir:**
+    - "Mi paciente tiene fiebre de 39 grados y no puede respirar bien"
+    - "El paciente presenta dolor en el pulmon y tos con flema"
+    - "Tiene temperatura de 38.5 y se ahoga al caminar"
+    - "Fiebre alta de 40 grados, dolor toracico y disnea"
+    
+    **El sistema detectara automaticamente:**
+    - Temperatura/fiebre
+    - Problemas respiratorios
+    - Dolor toracico/pulmonar
+    - Otros sintomas relevantes
+    """)
 
 # Columnas principales
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("Describe al Paciente")
+    st.subheader("📝 Describe al Paciente")
     
-    # Grabación de audio
-    if model:
-        st.info("Presiona el boton y describe los sintomas de tu paciente")
-        audio_bytes = audio_recorder(
-            text="Presiona para describir al paciente",
-            recording_color="#e74c3c",
-            neutral_color="#2ecc71",
-            icon_name="microphone",
-            icon_size="2x"
-        )
-        
-        if audio_bytes:
-            st.audio(audio_bytes, format="audio/wav")
-    else:
-        audio_bytes = None
-        st.warning("Reconocimiento de voz no disponible")
-    
-    # Entrada de texto (siempre disponible)
-    st.markdown("**Escribe directamente:**")
+    # Entrada de texto principal
     texto_manual = st.text_area(
-        "Describe los sintomas:",
+        "Describe los sintomas del paciente:",
         placeholder="Ej: El paciente tiene fiebre de 39 grados y no puede respirar",
-        height=100
+        height=150,
+        help="Describe los sintomas de forma natural, incluyendo temperatura si la conoces"
     )
+    
+    # Datos adicionales opcionales
+    with st.expander("➕ Datos adicionales (opcional)"):
+        col_extra1, col_extra2 = st.columns(2)
+        
+        with col_extra1:
+            edad = st.number_input("Edad del paciente", min_value=0, max_value=120, value=None)
+            peso = st.number_input("Peso (kg)", min_value=0.0, value=None)
+        
+        with col_extra2:
+            genero = st.selectbox("Género", ["No especificado", "Masculino", "Femenino", "Otro"])
+            alergias = st.text_input("Alergias conocidas")
 
 with col2:
-    st.subheader("Analisis y Recomendaciones")
+    st.subheader("📊 Análisis y Recomendaciones")
     
     # Botón de análisis
-    if st.button("Analizar Paciente", use_container_width=True, key="analizar_btn"):
-        texto_analizar = None
+    if st.button("🔍 Analizar Paciente", use_container_width=True, key="analizar_btn"):
         
-        # Procesar audio si existe
-        if audio_bytes and model:
-            with st.spinner("Transcribiendo descripcion del paciente..."):
-                texto_transcrito, error = transcribe_audio_optimized(audio_bytes, model)
-                
-                if error:
-                    st.error(f"Error: {error}")
-                    st.info("💡 Tip: Puedes usar la entrada de texto")
-                else:
-                    texto_analizar = texto_transcrito
-                    st.success(f"✅ Transcripción: {texto_analizar}")
-        
-        # Usar texto manual si no hay audio o hay error
-        if not texto_analizar and texto_manual:
-            texto_analizar = texto_manual
+        if not texto_manual.strip():
+            st.warning("⚠️ Por favor, describe los síntomas del paciente.")
+            st.stop()
         
         # Analizar información médica
-        if texto_analizar:
-            with st.spinner("Analizando informacion medica..."):
-                info_medica = extraer_informacion_medica(texto_analizar)
-                resultado = generar_diagnostico_y_recomendaciones(info_medica)
-                
-                # Mostrar análisis
-                st.success("✅ Analisis completado")
-                
-                # Información detectada
-                col_info1, col_info2 = st.columns(2)
-                
-                with col_info1:
-                    if info_medica["temperatura"]:
-                        temp = info_medica["temperatura"]
-                        if temp >= 39:
-                            st.error(f"🌡️ Temperatura: {temp}°C (ALTA)")
-                        elif temp >= 38:
-                            st.warning(f"🌡️ Temperatura: {temp}°C")
-                        else:
-                            st.info(f"🌡️ Temperatura: {temp}°C")
+        with st.spinner("Analizando información médica..."):
+            info_medica = extraer_informacion_medica(texto_manual)
+            resultado = generar_diagnostico_y_recomendaciones(info_medica)
+            
+            # Mostrar análisis
+            st.success("✅ Análisis completado")
+            
+            # Información detectada
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                if info_medica["temperatura"]:
+                    temp = info_medica["temperatura"]
+                    if temp >= 39:
+                        st.error(f"🌡️ Temperatura: {temp}°C (ALTA)")
+                    elif temp >= 38:
+                        st.warning(f"🌡️ Temperatura: {temp}°C")
                     else:
-                        st.info("🌡️ Temperatura: No especificada")
-                
-                with col_info2:
-                    if resultado["urgencia"] == "critica":
-                        st.error(f"⚠️ Urgencia: {resultado['urgencia'].upper()}")
-                    elif resultado["urgencia"] == "alta":
-                        st.warning(f"⚠️ Urgencia: {resultado['urgencia'].upper()}")
-                    else:
-                        st.info(f"ℹ️ Urgencia: {resultado['urgencia']}")
-                
-                # Síntomas detectados
-                if resultado["sintomas_detectados"]:
-                    st.write("**🩺 Sintomas identificados:**")
-                    for sintoma in resultado["sintomas_detectados"]:
-                        st.write(f"• {sintoma.replace('_', ' ').title()}")
-                
-                # Diagnóstico probable
-                if resultado["diagnostico"]:
-                    st.write(f"**🎯 Diagnostico probable:** {resultado['diagnostico'].replace('_', ' ').title()}")
-                
-                # Códigos NIC
-                if resultado["nic_codes"]:
-                    st.write("**📋 Codigos NIC aplicables:**")
-                    for code in resultado["nic_codes"]:
-                        st.write(f"• {code}")
-                
-                # Recomendaciones
-                if resultado["recomendaciones"]:
-                    st.write("**💡 Recomendaciones de Enfermeria:**")
-                    for i, recomendacion in enumerate(resultado["recomendaciones"], 1):
-                        st.write(f"{i}. {recomendacion}")
-                
-                # Guardar en historial
-                paciente_info = {
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "descripcion": texto_analizar,
-                    "temperatura": info_medica["temperatura"],
-                    "diagnostico": resultado["diagnostico"],
-                    "urgencia": resultado["urgencia"],
-                    "sintomas": resultado["sintomas_detectados"],
-                    "recomendaciones": resultado["recomendaciones"]
-                }
-                
-                st.session_state.historial_pacientes.append(paciente_info)
-        
-        else:
-            st.warning("⚠️ Por favor, grabe audio o escriba una descripción del paciente.")
+                        st.info(f"🌡️ Temperatura: {temp}°C")
+                else:
+                    st.info("🌡️ Temperatura: No especificada")
+            
+            with col_info2:
+                if resultado["urgencia"] == "critica":
+                    st.error(f"⚠️ Urgencia: {resultado['urgencia'].upper()}")
+                elif resultado["urgencia"] == "alta":
+                    st.warning(f"⚠️ Urgencia: {resultado['urgencia'].upper()}")
+                else:
+                    st.info(f"ℹ️ Urgencia: {resultado['urgencia']}")
+            
+            # Síntomas detectados
+            if resultado["sintomas_detectados"]:
+                st.write("**🩺 Síntomas identificados:**")
+                for sintoma in resultado["sintomas_detectados"]:
+                    st.write(f"• {sintoma.replace('_', ' ').title()}")
+            
+            # Diagnóstico probable
+            if resultado["diagnostico"]:
+                st.write(f"**🎯 Diagnóstico probable:** {resultado['diagnostico'].replace('_', ' ').title()}")
+            
+            # Códigos NIC
+            if resultado["nic_codes"]:
+                st.write("**📋 Códigos NIC aplicables:**")
+                for code in resultado["nic_codes"]:
+                    st.write(f"• {code}")
+            
+            # Recomendaciones
+            if resultado["recomendaciones"]:
+                st.write("**💡 Recomendaciones de Enfermería:**")
+                for i, recomendacion in enumerate(resultado["recomendaciones"], 1):
+                    st.write(f"{i}. {recomendacion}")
+            
+            # Guardar en historial
+            paciente_info = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "descripcion": texto_manual,
+                "temperatura": info_medica["temperatura"],
+                "diagnostico": resultado["diagnostico"],
+                "urgencia": resultado["urgencia"],
+                "sintomas": resultado["sintomas_detectados"],
+                "recomendaciones": resultado["recomendaciones"],
+                "edad": edad if 'edad' in locals() and edad else None,
+                "genero": genero if 'genero' in locals() else None
+            }
+            
+            st.session_state.historial_pacientes.append(paciente_info)
+            
+            # Mensaje de éxito
+            st.success("✅ Información guardada en el historial")
+
+# Botón para limpiar el texto
+if texto_manual:
+    if st.button("🗑️ Limpiar texto", key="limpiar_texto"):
+        st.rerun()
 
 # Historial de pacientes
 if st.session_state.historial_pacientes:
     st.header("📋 Historial de Pacientes")
     
-    if st.button("🗑️ Limpiar Historial", key="limpiar_btn"):
-        st.session_state.historial_pacientes = []
-        st.rerun()
+    col_hist1, col_hist2 = st.columns([3, 1])
     
-    for i, paciente in enumerate(reversed(st.session_state.historial_pacientes)):
+    with col_hist2:
+        if st.button("🗑️ Limpiar Historial", key="limpiar_btn"):
+            st.session_state.historial_pacientes = []
+            st.rerun()
+    
+    with col_hist1:
+        st.write(f"Total de evaluaciones: {len(st.session_state.historial_pacientes)}")
+    
+    # Mostrar últimas 5 evaluaciones
+    for i, paciente in enumerate(reversed(st.session_state.historial_pacientes[:5])):
         with st.expander(f"Paciente #{len(st.session_state.historial_pacientes) - i} - {paciente['timestamp']}"):
-            st.write(f"**Descripcion:** {paciente['descripcion']}")
-            st.write(f"**Temperatura:** {paciente['temperatura']}°C" if paciente['temperatura'] else "**Temperatura:** No especificada")
-            st.write(f"**Diagnostico:** {paciente['diagnostico']}" if paciente['diagnostico'] else "**Diagnostico:** A determinar")
-            st.write(f"**Urgencia:** {paciente['urgencia']}")
+            col_det1, col_det2 = st.columns(2)
+            
+            with col_det1:
+                st.write(f"**Descripción:** {paciente['descripcion']}")
+                if paciente.get('edad'):
+                    st.write(f"**Edad:** {paciente['edad']} años")
+                if paciente.get('genero') and paciente['genero'] != "No especificado":
+                    st.write(f"**Género:** {paciente['genero']}")
+            
+            with col_det2:
+                st.write(f"**Temperatura:** {paciente['temperatura']}°C" if paciente['temperatura'] else "**Temperatura:** No especificada")
+                st.write(f"**Diagnóstico:** {paciente['diagnostico']}" if paciente['diagnostico'] else "**Diagnóstico:** A determinar")
+                st.write(f"**Urgencia:** {paciente['urgencia']}")
             
             if paciente.get("recomendaciones"):
-                st.write("**Recomendaciones aplicadas:**")
+                st.write("**Principales recomendaciones:**")
                 for rec in paciente["recomendaciones"][:3]:
                     st.write(f"• {rec}")
 
+# Sidebar con información adicional
+with st.sidebar:
+    st.header("ℹ️ Información del Sistema")
+    
+    st.write("**Estado actual:**")
+    st.success("✅ Análisis de texto activo")
+    st.warning("⏳ Reconocimiento de voz en desarrollo")
+    
+    st.write("**Diagnósticos soportados:**")
+    st.write("• Neumonía")
+    st.write("• Asma aguda") 
+    st.write("• Crisis respiratoria")
+    
+    st.write("**Códigos NIC incluidos:**")
+    st.write("• 3350 - Monitorización Respiratoria")
+    st.write("• 3140 - Manejo Vía Aérea")
+    st.write("• 6550 - Protección Infecciones")
+    st.write("• 5602 - Enseñanza Proceso")
+    
+    st.markdown("---")
+    st.write("**📊 Estadísticas:**")
+    if st.session_state.historial_pacientes:
+        total = len(st.session_state.historial_pacientes)
+        urgencias = [p['urgencia'] for p in st.session_state.historial_pacientes]
+        criticas = urgencias.count('critica')
+        altas = urgencias.count('alta')
+        
+        st.write(f"Total evaluaciones: {total}")
+        st.write(f"Urgencias críticas: {criticas}")
+        st.write(f"Urgencias altas: {altas}")
+    else:
+        st.write("Sin evaluaciones aún")
+
 # Footer
 st.markdown("---")
-st.markdown("**⚠️ Importante:** Este es un sistema de apoyo. Siempre confirme con evaluacion medica profesional.")
-
+st.markdown("**⚠️ Importante:** Este es un sistema de apoyo educativo. Siempre confirme diagnósticos con profesionales médicos.")
+st.markdown("**🔄 Reconocimiento de voz:** Estará disponible cuando se resuelvan los problemas de compatibilidad de Python en Streamlit Cloud.")
