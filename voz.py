@@ -80,11 +80,7 @@ header {visibility: hidden;}
     padding: 1.2rem !important;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15) !important;
     border: 2px solid #667eea !important;
-}
-
-[data-testid="stChatInput"] {
-    border-radius: 20px !important;
-    background: white !important;
+    margin-top: 1rem !important;
 }
 
 .stChatInputContainer input {
@@ -183,6 +179,13 @@ header {visibility: hidden;}
     font-weight: 500;
     margin-top: 2rem;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Audio recorder styling */
+.audioRecorder {
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 </style>
@@ -369,19 +372,32 @@ with st.container():
         st.rerun()
 
 # ==============================
-# INPUT DE TEXTO Y AUDIO - MEJORADO
+# INPUT DE TEXTO Y AUDIO - NIVEL SUPERIOR
 # ==============================
 st.markdown("")  # Espacio visual
 
-# Crear dos columnas: input a la izquierda, audio a la derecha
-col_input, col_audio = st.columns([0.85, 0.15], gap="small")
+# IMPORTANTE: st.chat_input() DEBE estar al nivel superior, NUNCA dentro de contenedores
+user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
-with col_input:
-    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
+# Ahora sí podemos usar HTML/CSS para posicionar el audio
+st.markdown("""
+<style>
+.audio-container {
+    position: fixed;
+    bottom: 100px;
+    right: 30px;
+    z-index: 999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+</style>
+""", unsafe_allow_html=True)
 
-with col_audio:
-    st.markdown("")  # Espaciador
-    st.markdown("")  # Espaciador
+# Renderizar el recorder en un contenedor fijo
+col_left, col_right = st.columns([0.8, 0.2])
+
+with col_right:
     audio_bytes = audio_recorder(
         text="",
         recording_color="#e74c3c",
