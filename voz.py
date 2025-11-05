@@ -15,8 +15,8 @@ from audio_recorder_streamlit import audio_recorder
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
-st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide")
-
+#st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide")
+st.title("Asistente NIC con RAG")
 # === API Key de Gemini
 #api_key = os.environ["api_key"]
 #genai.configure(api_key)  #
