@@ -7,4 +7,5 @@ numpy
 audio-recorder-streamlit
 python-dotenv
 faiss-cpu
+sentence-transformers
 
