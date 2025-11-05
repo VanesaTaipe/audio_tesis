@@ -6,5 +6,5 @@ langchain-community
 numpy
 audio-recorder-streamlit
 python-dotenv
-faiss-cpu}
+faiss-cpu
 
