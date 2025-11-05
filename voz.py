@@ -283,11 +283,9 @@ with st.container():
 # INPUT DE TEXTO Y AUDIO
 # ==============================
 col1, col2 = st.columns([5, 1])
-user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
 with col1:
-    if user_input:
-    st.write(f"Tu consulta: {user_input}")
+    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
 with col2:
     audio_bytes = audio_recorder(
