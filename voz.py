@@ -282,10 +282,13 @@ with st.container():
 # ==============================
 # INPUT DE TEXTO Y AUDIO
 # ==============================
+# IMPORTANT: st.chat_input() must be at the top level, NOT inside st.columns()
+user_input = st.chat_input("💬 Escribe tu consulta aquí...")
+
 col1, col2 = st.columns([5, 1])
 
 with col1:
-    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
+    st.empty()  # Placeholder for spacing
 
 with col2:
     audio_bytes = audio_recorder(
