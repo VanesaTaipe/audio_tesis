@@ -15,93 +15,182 @@ from audio_recorder_streamlit import audio_recorder
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
-#st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide")
-st.title("Asistente NIC con RAG")
-# === API Key de Gemini
-#api_key = os.environ["api_key"]
-#genai.configure(api_key)  #
-api_key = os.environ["api_key"]
+st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide", initial_sidebar_state="collapsed")
 
-# Configurar la API key correctamente
-genai.api_key = api_key
 # ==============================
-# CSS personalizado
+# CSS personalizado - FONDO MEJORADO
 # ==============================
 st.markdown("""
 <style>
+html, body, [data-testid="stAppViewContainer"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background-attachment: fixed;
+    min-height: 100vh;
+}
+
+[data-testid="stMainBlockContainer"] {
+    background: transparent;
+    padding-bottom: 2rem;
+}
+
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
 
-.main {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
 .title-container {
     background: white;
-    padding: 2rem;
-    border-radius: 15px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2.5rem;
+    border-radius: 20px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
     margin-bottom: 2rem;
     text-align: center;
+    border: 3px solid #667eea;
 }
 
 .title-container h1 {
     color: #667eea;
     margin: 0;
-    font-size: 2.5rem;
+    font-size: 2.8rem;
+    font-weight: 800;
 }
 
 .title-container p {
     color: #666;
-    margin: 0.5rem 0 0 0;
-    font-size: 1.1rem;
-}
-
-.stChatFloatingInputContainer {
-    background: white;
-    border-radius: 15px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin: 0.8rem 0 0 0;
+    font-size: 1.15rem;
+    font-weight: 500;
 }
 
 [data-testid="stChatMessageContainer"] {
-    background: white;
-    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 20px;
     padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    margin-bottom: 1rem;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1.5rem;
     min-height: 500px;
     max-height: 600px;
     overflow-y: auto;
+    border: 2px solid #f0f0f0;
+}
+
+/* Chat input styling */
+.stChatInputContainer {
+    background: white !important;
+    border-radius: 20px !important;
+    padding: 1.2rem !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15) !important;
+    border: 2px solid #667eea !important;
+}
+
+[data-testid="stChatInput"] {
+    border-radius: 20px !important;
+    background: white !important;
+}
+
+.stChatInputContainer input {
+    border-radius: 20px !important;
+    border: 2px solid #667eea !important;
+    font-size: 1rem;
+    padding: 0.8rem 1.2rem;
+}
+
+.stChatInputContainer input::placeholder {
+    color: #999;
+    font-size: 1rem;
+}
+
+.stChatInputContainer input:focus {
+    border: 2px solid #764ba2 !important;
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
 }
 
 .stButton > button {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 25px;
-    padding: 0.5rem 2rem;
-    font-weight: bold;
-    transition: transform 0.2s;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 25px !important;
+    padding: 0.7rem 2.5rem !important;
+    font-weight: bold !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
 }
 
 .stButton > button:hover {
-    transform: scale(1.05);
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6) !important;
+}
+
+.stButton > button:active {
+    transform: translateY(0px) !important;
 }
 
 .stTextInput > div > div > input {
-    border-radius: 25px;
-    border: 2px solid #667eea;
+    border-radius: 25px !important;
+    border: 2px solid #667eea !important;
+    padding: 0.8rem 1.2rem;
 }
 
 .streamlit-expanderHeader {
-    background-color: #f0f2f6;
-    border-radius: 10px;
+    background: linear-gradient(135deg, #f5f7ff 0%, #f0f2f6 100%);
+    border-radius: 12px;
     font-weight: 600;
+    color: #667eea;
+    border: 1px solid #e0e0f0;
 }
+
+.streamlit-expanderHeader:hover {
+    background: linear-gradient(135deg, #eff1ff 0%, #e8ecf6 100%);
+}
+
+/* Spinner styling */
+.stSpinner {
+    color: white;
+}
+
+/* Message styling */
+.stChatMessage {
+    background: transparent;
+    padding: 1rem 0;
+}
+
+[data-testid="chatAvatarIcon-assistant"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+}
+
+[data-testid="chatAvatarIcon-user"] {
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+}
+
+/* Footer */
+.footer-text {
+    color: white;
+    text-align: center;
+    font-weight: 500;
+    margin-top: 2rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
 </style>
 """, unsafe_allow_html=True)
+
+# === API Key de Gemini
+api_key = os.environ["api_key"]
+genai.api_key = api_key
 
 # ==============================
 # CARGAR VECTORSTORE COMPLETO DESDE ARCHIVOS GUARDADOS
@@ -280,17 +369,19 @@ with st.container():
         st.rerun()
 
 # ==============================
-# INPUT DE TEXTO Y AUDIO
+# INPUT DE TEXTO Y AUDIO - MEJORADO
 # ==============================
-# IMPORTANT: st.chat_input() must be at the top level, NOT inside st.columns()
-user_input = st.chat_input("💬 Escribe tu consulta aquí...")
+st.markdown("")  # Espacio visual
 
-col1, col2 = st.columns([5, 1])
+# Crear dos columnas: input a la izquierda, audio a la derecha
+col_input, col_audio = st.columns([0.85, 0.15], gap="small")
 
-with col1:
-    st.empty()  # Placeholder for spacing
+with col_input:
+    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
-with col2:
+with col_audio:
+    st.markdown("")  # Espaciador
+    st.markdown("")  # Espaciador
     audio_bytes = audio_recorder(
         text="",
         recording_color="#e74c3c",
@@ -312,10 +403,15 @@ if user_input:
 # ==============================
 # FOOTER
 # ==============================
-st.markdown("---")
-st.caption("⚕️ Este sistema es solo de apoyo y no sustituye la valoración clínica profesional.")
+st.markdown("")
+st.markdown("""
+<div class="footer-text">
+⚕️ Este sistema es solo de apoyo y no sustituye la valoración clínica profesional.
+</div>
+""", unsafe_allow_html=True)
 
 if len(st.session_state.messages) > 1:
+    st.markdown("")
     if st.button("🗑️ Limpiar conversación", use_container_width=True):
         st.session_state.messages = [{
             "role": "assistant",
