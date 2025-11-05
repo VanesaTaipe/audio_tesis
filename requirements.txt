@@ -1,13 +1,9 @@
 streamlit
-streamlit-audio-recorder
+whisper
+google-generativeai
 langchain
 langchain-community
-google-generativea
-whisper-openai
-torch
 numpy
-faiss-cpu
-huggingface-hub
-sentence-transformers
+audio-recorder-streamlit
 python-dotenv
-
+faiss-cpu
