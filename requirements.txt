@@ -1,11 +1,10 @@
-streamlit
+streamlit==1.29.0             # la última estable
 whisper
 google-generativeai
-langchain
+langchain==0.0.238            # versión compatible con InMemoryDocstore
 langchain-community
 numpy
 audio-recorder-streamlit
 python-dotenv
-faiss-cpu
-langchain
+faiss-cpu}
 
