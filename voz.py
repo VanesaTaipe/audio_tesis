@@ -326,4 +326,45 @@ with st.container():
         })
         st.rerun()
 
-# ========================
+# ==============================
+# INPUT DE TEXTO Y AUDIO
+# ==============================
+col1, col2 = st.columns([5, 1])
+
+with col1:
+    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
+
+with col2:
+    audio_bytes = audio_recorder(
+        text="",
+        recording_color="#e74c3c",
+        neutral_color="#667eea",
+        icon_name="microphone",
+        icon_size="2x",
+        key=f"audio_recorder_{len(st.session_state.messages)}"
+    )
+
+if audio_bytes and audio_bytes != st.session_state.audio_processed:
+    st.session_state.audio_processed = audio_bytes
+    st.session_state.pending_audio = audio_bytes
+    st.rerun()
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    st.rerun()
+
+# ==============================
+# FOOTER
+# ==============================
+st.markdown("---")
+st.caption("⚕️ Este sistema es solo de apoyo y no sustituye la valoración clínica profesional.")
+
+if len(st.session_state.messages) > 1:
+    if st.button("🗑️ Limpiar conversación", use_container_width=True):
+        st.session_state.messages = [{
+            "role": "assistant",
+            "content": "👋 ¡Hola! Soy tu asistente NIC. Puedes escribir tu consulta o usar el micrófono."
+        }]
+        st.session_state.audio_processed = None
+        st.session_state.pending_audio = None
+        st.rerun()
