@@ -1,17 +1,18 @@
 import os
 import json
 import tempfile
+from langchain.docstore import InMemoryDocstore
+
 import numpy as np
 import streamlit as st
 import google.generativeai as genai
 from langchain.docstore.document import Document
 from langchain_community.vectorstores import FAISS
-from langchain.docstore.in_memory import InMemoryDocstore
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from audio_recorder_streamlit import audio_recorder
-import pickle, faiss
-from pathlib import Path
 from openai import OpenAI
+import pickle
+import faiss
 
 # ==============================
 # CONFIGURACIÓN INICIAL
@@ -36,7 +37,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==============================
-# ESTILOS CSS
+# CSS personalizado
 # ==============================
 st.markdown("""
 <style>
@@ -114,45 +115,48 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-
 # ==============================
-# CARGAR VECTORSTORE
+# CARGAR VECTORSTORE COMPLETO DESDE ARCHIVOS GUARDADOS
 # ==============================
 @st.cache_resource(show_spinner=False)
 def cargar_vectorstore_desde_archivos():
-    archivo_faiss = "indice_faiss.index"
-    archivo_metadata = "metadata.pkl"
+    # === 1. Cargar índice FAISS
+    index = faiss.read_index("indice_faiss.index")
 
-    index = faiss.read_index(str(archivo_faiss))
-
-    with open(archivo_metadata, "rb") as f:
+    # === 2. Cargar embeddings y metadatos
+    embeddings_array = np.load("embeddings.npy")
+    with open("metadata.pkl", "rb") as f:
         metadata = pickle.load(f)
 
+    with open("chunks_con_headers.pkl", "rb") as f:
+        textos = pickle.load(f)
+
+    # === 3. Cargar modelo de embeddings (debe ser el MISMO con el que se creó el índice)
+    embedding_model = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-large")
+     
     documentos = []
-    for meta in metadata:
-        contenido = f"[{meta.get('seccion', 'Sin sección')}] {meta.get('texto', '')}"
+    for t in textos:
+        if isinstance(t, dict):
+            contenido = f"[{t.get('seccion', 'Sin sección')}] {t.get('texto', '')}"
+        else:
+            contenido = str(t)
         documentos.append(Document(page_content=contenido))
 
-    docstore_dict = {str(i): doc for i, doc in enumerate(documentos)}
-    docstore = InMemoryDocstore(docstore_dict)
-    index_to_docstore_id = {i: str(i) for i in range(len(documentos))}
-
-    # OpenAI embeddings para consultas
-    def embed_query(texto: str):
-        resp = openai_client.embeddings.create(
-            input=texto,
-            model="text-embedding-3-large",
-            dimensions=1024
-        )
-        return resp.data[0].embedding
-
+    # 5. Reconstruir el vectorstore
+    docstore_items = {}
+    index_to_docstore_id = {}
+    for i, doc in enumerate(documentos):
+        doc_id = f"doc_{i}"
+        docstore_items[doc_id] = doc
+        index_to_docstore_id[i] = doc_id
+    
+    docstore = InMemoryDocstore(docstore_items)
     vectorstore = FAISS(
-        embed_query,
-        index,
-        docstore,
-        index_to_docstore_id
+        embedding_function=embedding_model.embed_query,
+        index=index,
+        docstore=docstore,
+        index_to_docstore_id=index_to_docstore_id
     )
-
     return vectorstore
 
 
@@ -231,9 +235,8 @@ Si no hay suficiente información, responde: "❌ No encontrado en el documento"
     resp = model.generate_content(prompt)
     return resp.text.strip()
 
-
 # ==============================
-# SESIÓN
+# INICIALIZACIÓN DE SESIÓN
 # ==============================
 if "messages" not in st.session_state:
     st.session_state.messages = [{
@@ -247,7 +250,6 @@ if "audio_processed" not in st.session_state:
 if "pending_audio" not in st.session_state:
     st.session_state.pending_audio = None
 
-
 # ==============================
 # HEADER
 # ==============================
@@ -258,12 +260,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
 # ==============================
 # CARGAR VECTORSTORE
 # ==============================
 vectorstore = cargar_vectorstore_desde_archivos()
-
 
 # ==============================
 # ÁREA DE CHAT
@@ -280,7 +280,7 @@ with st.container():
                     with st.expander("🔍 Ver contexto utilizado", expanded=False):
                         st.markdown(f"```\n{msg['context']}\n```")
 
-    # Procesar audio grabado (OpenAI Whisper)
+    # Procesar audio grabado con OpenAI Whisper
     if st.session_state.pending_audio is not None:
         with st.spinner("🎤 Transcribiendo audio con OpenAI Whisper..."):
             transcribed_text = transcribir_audio_openai(st.session_state.pending_audio)
@@ -299,7 +299,6 @@ with st.container():
             st.session_state.pending_audio = None
             st.session_state.audio_processed = None
 
-            # Espera breve para que el texto se vea antes del rerun
             st.toast("🧩 Procesando la consulta...", icon="💬")
             st.rerun()
         else:
@@ -327,47 +326,4 @@ with st.container():
         })
         st.rerun()
 
-
-# ==============================
-# INPUT DE TEXTO Y AUDIO
-# ==============================
-col1, col2 = st.columns([5, 1])
-
-with col1:
-    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
-
-with col2:
-    audio_bytes = audio_recorder(
-        text="",
-        recording_color="#e74c3c",
-        neutral_color="#667eea",
-        icon_name="microphone",
-        icon_size="2x",
-        key=f"audio_recorder_{len(st.session_state.messages)}"
-    )
-
-if audio_bytes and audio_bytes != st.session_state.audio_processed:
-    st.session_state.audio_processed = audio_bytes
-    st.session_state.pending_audio = audio_bytes
-    st.rerun()
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    st.rerun()
-
-
-# ==============================
-# FOOTER
-# ==============================
-st.markdown("---")
-st.caption("⚕️ Este sistema es solo de apoyo y no sustituye la valoración clínica profesional.")
-
-if len(st.session_state.messages) > 1:
-    if st.button("🗑️ Limpiar conversación", use_container_width=True):
-        st.session_state.messages = [{
-            "role": "assistant",
-            "content": "👋 ¡Hola! Soy tu asistente NIC. Puedes escribir tu consulta o usar el micrófono."
-        }]
-        st.session_state.audio_processed = None
-        st.session_state.pending_audio = None
-        st.rerun()
+# ========================
