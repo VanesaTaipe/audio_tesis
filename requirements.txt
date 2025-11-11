@@ -1,11 +1,20 @@
-streamlit==1.29.0             # la última estable
-whisper
-google-generativeai
-langchain==0.0.238            # versión compatible con InMemoryDocstore
-langchain-community
-numpy
-audio-recorder-streamlit
-python-dotenv
+streamlit
+langchain==0.1.8
+langchain-community==0.0.21
+google-generativeai==0.3.1
+openai-whisper
+torch==2.6.0
+numpy==1.26.4
 faiss-cpu
-sentence-transformers
+huggingface-hub==0.19.4
+sentence-transformers==2.2.2
+python-dotenv==1.0.0
+streamlit-mic-recorder
+audio-recorder-streamlit
+setuptools
+openai
+
+
+
+
 
