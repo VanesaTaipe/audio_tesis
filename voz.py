@@ -3,7 +3,6 @@ import json
 import tempfile
 import numpy as np
 import streamlit as st
-import requests
 import google.generativeai as genai
 from langchain.docstore.document import Document
 from langchain_community.vectorstores import FAISS
@@ -19,9 +18,22 @@ from openai import OpenAI
 # ==============================
 st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide")
 
-# === API 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# === API KEYS desde Streamlit Secrets ===
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY")
+
+# Validar que existen las keys necesarias
+if not GEMINI_API_KEY:
+    st.error("⚠️ Falta GEMINI_API_KEY en Streamlit Secrets")
+    st.stop()
+
+if not OPENAI_API_KEY:
+    st.error("⚠️ Falta OPENAI_API_KEY en Streamlit Secrets")
+    st.stop()
+
+# Configurar APIs
+genai.configure(api_key=GEMINI_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==============================
 # ESTILOS CSS
@@ -125,7 +137,7 @@ def cargar_vectorstore_desde_archivos():
     docstore = InMemoryDocstore(docstore_dict)
     index_to_docstore_id = {i: str(i) for i in range(len(documentos))}
 
-    # Aquí usamos la función de OpenAI para embeddings de consultas
+    # OpenAI embeddings para consultas
     def embed_query(texto: str):
         resp = openai_client.embeddings.create(
             input=texto,
@@ -145,40 +157,34 @@ def cargar_vectorstore_desde_archivos():
 
 
 # ==============================
-# TRANSCRIPCIÓN CON GROQ API
+# TRANSCRIPCIÓN CON OPENAI WHISPER API
 # ==============================
-def transcribir_audio_groq(audio_bytes: bytes) -> str:
+def transcribir_audio_openai(audio_bytes: bytes) -> str:
     """
-    Envía un archivo de audio al endpoint de Groq Whisper API
+    Envía un archivo de audio a OpenAI Whisper API
     y devuelve el texto transcrito.
     """
-    api_key = os.environ["GROQ_API_KEY"]
-    if not api_key:
-        st.error("❌ Falta la clave de API de Groq (GROQ_API_KEY).")
-        return ""
-
     try:
+        # Guardar audio temporalmente
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
+        # Transcribir con OpenAI Whisper
         with open(tmp_path, "rb") as audio_file:
-            response = requests.post(
-                "https://api.groq.com/openai/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                files={"file": audio_file},
-                data={"model": "whisper-large-v3"},
-                timeout=120
+            transcript = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="es"  # Especificar español
             )
+        
+        # Limpiar archivo temporal
         os.unlink(tmp_path)
 
-        if response.status_code == 200:
-            return response.json().get("text", "").strip()
-        else:
-            st.error(f"Error al transcribir (Groq): {response.text}")
-            return ""
+        return transcript.text.strip()
+            
     except Exception as e:
-        st.error(f"Error al conectar con Groq: {e}")
+        st.error(f"❌ Error al transcribir con OpenAI Whisper: {str(e)}")
         return ""
 
 
@@ -274,10 +280,10 @@ with st.container():
                     with st.expander("🔍 Ver contexto utilizado", expanded=False):
                         st.markdown(f"```\n{msg['context']}\n```")
 
-    # Procesar audio grabado (Groq Whisper)
+    # Procesar audio grabado (OpenAI Whisper)
     if st.session_state.pending_audio is not None:
-        with st.spinner("🎤 Transcribiendo audio con Groq Whisper..."):
-            transcribed_text = transcribir_audio_groq(st.session_state.pending_audio)
+        with st.spinner("🎤 Transcribiendo audio con OpenAI Whisper..."):
+            transcribed_text = transcribir_audio_openai(st.session_state.pending_audio)
 
         if transcribed_text:
             st.success("✅ Transcripción completada:")
@@ -365,5 +371,3 @@ if len(st.session_state.messages) > 1:
         st.session_state.audio_processed = None
         st.session_state.pending_audio = None
         st.rerun()
-
-
