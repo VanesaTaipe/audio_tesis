@@ -1,51 +1,40 @@
 import os
 import json
 import tempfile
-from langchain.docstore import InMemoryDocstore
-
 import numpy as np
 import streamlit as st
-import whisper
+import requests
 import google.generativeai as genai
 from langchain.docstore.document import Document
 from langchain_community.vectorstores import FAISS
+from langchain.docstore.in_memory import InMemoryDocstore
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from audio_recorder_streamlit import audio_recorder
+import pickle, faiss
+from pathlib import Path
+from openai import OpenAI
 
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="Asistente NIC con RAG", page_icon="🩺", layout="wide")
 
-# === API Key de Gemini - SEGURO desde secrets.toml
-try:
-    api_key = st.secrets["api_key"]
-except KeyError:
-    api_key = os.environ.get("api_key", "")
-    if not api_key:
-        st.error("❌ API key no configurada. Configura en .streamlit/secrets.toml")
-        st.stop()
-
-genai.api_key = api_key
+# === API 
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # ==============================
-# CSS personalizado - MEJORADO
+# ESTILOS CSS
 # ==============================
 st.markdown("""
 <style>
-html, body, [data-testid="stAppViewContainer"] {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-    background-attachment: fixed;
-    min-height: 100vh;
-}
-
-[data-testid="stMainBlockContainer"] {
-    background: transparent;
-}
-
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
+
+.main {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
 
 .title-container {
     background: white;
@@ -68,6 +57,13 @@ header {visibility: hidden;}
     font-size: 1.1rem;
 }
 
+.stChatFloatingInputContainer {
+    background: white;
+    border-radius: 15px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
 [data-testid="stChatMessageContainer"] {
     background: white;
     border-radius: 15px;
@@ -77,20 +73,6 @@ header {visibility: hidden;}
     min-height: 500px;
     max-height: 600px;
     overflow-y: auto;
-}
-
-/* Chat input styling */
-.stChatInputContainer {
-    background: white !important;
-    border-radius: 15px !important;
-    padding: 1rem !important;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
-    margin-top: 1rem !important;
-}
-
-.stChatInputContainer input {
-    border-radius: 15px !important;
-    border: 2px solid #667eea !important;
 }
 
 .stButton > button {
@@ -120,105 +102,108 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# ==============================
-# CARGAR VECTORSTORE COMPLETO DESDE ARCHIVOS GUARDADOS
-# ==============================
-import pickle
-import faiss
 
+# ==============================
+# CARGAR VECTORSTORE
+# ==============================
 @st.cache_resource(show_spinner=False)
 def cargar_vectorstore_desde_archivos():
-    try:
-        # === 1. Cargar índice FAISS
-        index = faiss.read_index("indice_faiss.index")
-        
-        # === 2. Cargar embeddings y metadatos
-        try:
-            embeddings_array = np.load("embeddings.npy")
-        except:
-            st.warning("⚠️ embeddings.npy no encontrado")
+    archivo_faiss = "indice_faiss.index"
+    archivo_metadata = "metadata.pkl"
 
-        with open("metadata.pkl", "rb") as f:
-            metadata = pickle.load(f)
+    index = faiss.read_index(str(archivo_faiss))
 
-        with open("chunks_con_headers.pkl", "rb") as f:
-            textos = pickle.load(f)
+    with open(archivo_metadata, "rb") as f:
+        metadata = pickle.load(f)
 
-        # === 3. Cargar modelo de embeddings
-        embedding_model = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-large")
-         
-        # === 4. IMPORTANTE: Crear documentos EXACTAMENTE como se creó el índice
-        documentos = []
-        for i, t in enumerate(textos):
-            if isinstance(t, dict):
-                contenido = f"[{t.get('seccion', 'Sin sección')}] {t.get('texto', '')}"
-            else:
-                contenido = str(t)
-            
-            doc = Document(page_content=contenido, metadata={"source": f"chunk_{i}"})
-            documentos.append(doc)
+    documentos = []
+    for meta in metadata:
+        contenido = f"[{meta.get('seccion', 'Sin sección')}] {meta.get('texto', '')}"
+        documentos.append(Document(page_content=contenido))
 
-        # === 5. Reconstruir docstore CON TODOS los documentos
-        docstore_items = {}
-        index_to_docstore_id = {}
-        
-        for i, doc in enumerate(documentos):
-            doc_id = f"doc_{i}"
-            docstore_items[doc_id] = doc
-            index_to_docstore_id[i] = doc_id
-        
-        docstore = InMemoryDocstore(docstore_items)
-        
-        # === 6. Crear vectorstore
-        vectorstore = FAISS(
-            embedding_function=embedding_model.embed_query,
-            index=index,
-            docstore=docstore,
-            index_to_docstore_id=index_to_docstore_id
+    docstore_dict = {str(i): doc for i, doc in enumerate(documentos)}
+    docstore = InMemoryDocstore(docstore_dict)
+    index_to_docstore_id = {i: str(i) for i in range(len(documentos))}
+
+    # Aquí usamos la función de OpenAI para embeddings de consultas
+    def embed_query(texto: str):
+        resp = openai_client.embeddings.create(
+            input=texto,
+            model="text-embedding-3-large",
+            dimensions=1024
         )
-        
-        st.success("✅ Vectorstore cargado correctamente")
-        return vectorstore
-        
-    except FileNotFoundError as e:
-        st.error(f"❌ Error: No se encontraron los archivos de índice. {e}")
-        st.stop()
+        return resp.data[0].embedding
+
+    vectorstore = FAISS(
+        embed_query,
+        index,
+        docstore,
+        index_to_docstore_id
+    )
+
+    return vectorstore
+
+
+# ==============================
+# TRANSCRIPCIÓN CON GROQ API
+# ==============================
+def transcribir_audio_groq(audio_bytes: bytes) -> str:
+    """
+    Envía un archivo de audio al endpoint de Groq Whisper API
+    y devuelve el texto transcrito.
+    """
+    api_key = os.environ["GROQ_API_KEY"]
+    if not api_key:
+        st.error("❌ Falta la clave de API de Groq (GROQ_API_KEY).")
+        return ""
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        with open(tmp_path, "rb") as audio_file:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": audio_file},
+                data={"model": "whisper-large-v3"},
+                timeout=120
+            )
+        os.unlink(tmp_path)
+
+        if response.status_code == 200:
+            return response.json().get("text", "").strip()
+        else:
+            st.error(f"Error al transcribir (Groq): {response.text}")
+            return ""
     except Exception as e:
-        st.error(f"❌ Error al cargar vectorstore: {str(e)}")
-        st.stop()
+        st.error(f"Error al conectar con Groq: {e}")
+        return ""
 
 
 # ==============================
 # FUNCIONES AUXILIARES
 # ==============================
-@st.cache_resource
-def cargar_whisper():
-    return whisper.load_model("base", device="cpu")
+def buscar_contexto(consulta: str, k: int = 5):
+    resultados = vectorstore.similarity_search_with_score(consulta, k=k)
+    contexto = "\n\n".join([doc.page_content for doc, _ in resultados])
 
-def buscar_contexto(consulta: str, k: int = 3):
-    try:
-        resultados = vectorstore.similarity_search_with_score(consulta, k=k)
-        contexto = "\n\n".join([doc.page_content for doc, _ in resultados])
-
-        contexto_mostrable = ""
-        for i, (doc, score) in enumerate(resultados, start=1):
-            contexto_mostrable += f"🔹 **Fragmento {i} (score={score:.4f})**\n{doc.page_content}\n\n"
-        
-        return contexto, contexto_mostrable
-    except Exception as e:
-        st.error(f"Error en búsqueda: {str(e)}")
-        return "", f"Error: {str(e)}"
+    contexto_mostrable = ""
+    for i, (doc, score) in enumerate(resultados, start=1):
+        contexto_mostrable += f"🔹 **Fragmento {i} (score={score:.4f})**\n{doc.page_content}\n\n"
+    
+    return contexto, contexto_mostrable
 
 
 def consulta_llm_rag(consulta: str, contexto: str, historial: list) -> str:
-    try:
-        ultimos_mensajes = historial[-5:]
-        historial_texto = "\n".join([
-            f"{'👤 Usuario' if m['role']=='user' else '🩺 Asistente'}: {m['content']}"
-            for m in ultimos_mensajes
-        ])
+    ultimos_mensajes = historial[-5:]
+    historial_texto = "\n".join([
+        f"{'👤 Usuario' if m['role']=='user' else '🩺 Asistente'}: {m['content']}"
+        for m in ultimos_mensajes
+    ])
 
-        prompt = f"""
+    prompt = f"""
 Eres un asistente clínico especializado en la Clasificación NIC. 
 Responde de forma amable, profesional y breve.
 Usa EXCLUSIVAMENTE la información recuperada de documentos y el historial reciente.
@@ -236,14 +221,13 @@ Usa EXCLUSIVAMENTE la información recuperada de documentos y el historial recie
 ---
 Si no hay suficiente información, responde: "❌ No encontrado en el documento".
 """
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        resp = model.generate_content(prompt)
-        return resp.text.strip()
-    except Exception as e:
-        return f"Error al generar respuesta: {str(e)}"
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    resp = model.generate_content(prompt)
+    return resp.text.strip()
+
 
 # ==============================
-# INICIALIZACIÓN DE SESIÓN
+# SESIÓN
 # ==============================
 if "messages" not in st.session_state:
     st.session_state.messages = [{
@@ -257,6 +241,7 @@ if "audio_processed" not in st.session_state:
 if "pending_audio" not in st.session_state:
     st.session_state.pending_audio = None
 
+
 # ==============================
 # HEADER
 # ==============================
@@ -267,10 +252,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
 # ==============================
 # CARGAR VECTORSTORE
 # ==============================
 vectorstore = cargar_vectorstore_desde_archivos()
+
 
 # ==============================
 # ÁREA DE CHAT
@@ -287,20 +274,31 @@ with st.container():
                     with st.expander("🔍 Ver contexto utilizado", expanded=False):
                         st.markdown(f"```\n{msg['context']}\n```")
 
-    # Procesar audio grabado
+    # Procesar audio grabado (Groq Whisper)
     if st.session_state.pending_audio is not None:
-        with st.spinner("🎤 Transcribiendo audio..."):
-            model = cargar_whisper()
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                tmp.write(st.session_state.pending_audio)
-                tmp_path = tmp.name
-            result = model.transcribe(tmp_path)
-            transcribed_text = result["text"].strip()
-            os.unlink(tmp_path)
+        with st.spinner("🎤 Transcribiendo audio con Groq Whisper..."):
+            transcribed_text = transcribir_audio_groq(st.session_state.pending_audio)
 
-        st.session_state.messages.append({"role": "user", "content": transcribed_text})
-        st.session_state.pending_audio = None
-        st.rerun()
+        if transcribed_text:
+            st.success("✅ Transcripción completada:")
+            st.markdown(f"**Texto detectado:** {transcribed_text}")
+
+            # Agregar como mensaje del usuario
+            st.session_state.messages.append({
+                "role": "user",
+                "content": transcribed_text
+            })
+
+            # Limpiar estados de audio
+            st.session_state.pending_audio = None
+            st.session_state.audio_processed = None
+
+            # Espera breve para que el texto se vea antes del rerun
+            st.toast("🧩 Procesando la consulta...", icon="💬")
+            st.rerun()
+        else:
+            st.error("❌ No se pudo transcribir el audio. Intenta nuevamente.")
+            st.session_state.pending_audio = None
 
     # Si el último mensaje es del usuario → buscar respuesta
     if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
@@ -323,14 +321,14 @@ with st.container():
         })
         st.rerun()
 
-# ==============================
-# INPUT DE TEXTO Y AUDIO - SOLUCIONADO
-# ==============================
-# IMPORTANTE: st.chat_input() debe estar FUERA de st.columns()
-user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
-# Renderizar audio en columna aparte (después del chat_input)
-col1, col2 = st.columns([0.85, 0.15])
+# ==============================
+# INPUT DE TEXTO Y AUDIO
+# ==============================
+col1, col2 = st.columns([5, 1])
+
+with col1:
+    user_input = st.chat_input("💬 Escribe tu consulta aquí...")
 
 with col2:
     audio_bytes = audio_recorder(
@@ -351,6 +349,7 @@ if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.rerun()
 
+
 # ==============================
 # FOOTER
 # ==============================
@@ -366,3 +365,5 @@ if len(st.session_state.messages) > 1:
         st.session_state.audio_processed = None
         st.session_state.pending_audio = None
         st.rerun()
+
+
