@@ -299,8 +299,6 @@ with st.container():
             st.session_state.pending_audio = None
             st.session_state.audio_processed = None
 
-            st.toast("🧩 Procesando la consulta...", icon="💬")
-            st.rerun()
         else:
             st.error("❌ No se pudo transcribir el audio. Intenta nuevamente.")
             st.session_state.pending_audio = None
